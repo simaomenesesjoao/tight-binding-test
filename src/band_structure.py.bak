@@ -1,0 +1,319 @@
+import numpy as np
+import sys
+import matplotlib.pyplot as plt
+
+def get_spectral_linearized(filename):
+    data = np.loadtxt(filename)
+    energies = data[:,0]
+    NE, ncols = data.shape
+
+    dim = int(ncols//3)
+
+
+    green = np.zeros([dim, NE], dtype='complex')
+
+
+    for i in range(dim):
+        green[i,:] = data[:,i*3 + 1] + 1j*data[:,i*3 + 2]
+
+    return energies, green
+
+
+def get_spectral(filename):
+    """Gets the spectral function G(k,E) from a file. This matrix is the disorder-averaged
+    Green's function for a specific wave-vector k and a set of energies. In the data file, it
+    should be stored as
+
+
+    E1   Re[G_00(E1)] Im[G_00(E1)]  E1   Re[G_01(E1)] Im[G_01(E1)] ...
+    E2   Re[G_00(E2)] Im[G_00(E2)]  E1   Re[G_01(E2)] Im[G_01(E2)] ...
+    .
+    .
+    .
+    EM   Re[G_00(EM)] Im[G_00(EM)]  EM   Re[G_01(EM)] Im[G_01(EM)] ...
+
+
+
+    where EM is the M-th value of energy in a list of M energies, G_ij(EM) is the ij-th
+    matrix element of the Green's function computed at energy EM and wave-vector k, which is
+    the same for the whole file. N is the number of orbitals in the model (which is also the
+    number of bands), so it should be 1 for the simple square lattice, 2 for simple graphene,
+    4 for graphene with spin, etc.
+
+    This method stores the Green's function as a matrix with 3 indices, where the first two
+    are the row and column and the third is the energy, so
+
+
+               |  G_00(E)  G_01(E)  ...  G_0N(E) |
+               |  G_10(E)  G_11(E)  ...  G_1N(E) |
+    G(:,:,E) = |                     .           |
+               |                     .           |
+               |  G_N0(E)  G_N1(E)  ...  G_NN(E) |
+
+    """
+
+
+    data = np.loadtxt(filename)
+    energies = data[:,0]
+    NE, ncols = data.shape
+
+    dim = int(np.sqrt(ncols//3 + 0.0001))
+
+
+    green = np.zeros([NE,dim*dim], dtype='complex')
+
+
+    for i in range(dim*dim):
+        green[:,i] = data[:,i*3 + 1] + 1j*data[:,i*3 + 2]
+
+    green_matrix = np.zeros([dim,dim,NE], dtype = 'complex')
+    for i in range(dim):
+        for j in range(dim):
+            green_matrix[i,j,:] = green[:,j + dim*i]
+
+    return energies, green_matrix
+
+
+def self_energy(Hk,energies, green_matrix):
+
+    self_en = green_matrix.copy()*0
+    inv_G   = green_matrix.copy()*0
+    dim = self_en.shape[0]
+    NE = len(energies)
+    for e in range(NE):
+        g = green_matrix[:,:,e]
+        inv = np.linalg.inv(g*dim)
+
+        # Hk is divided by dim because KITE normalizes the k vector
+        # to the whole Hilbert space, while I normalize to the
+        # number of unit cells
+        # self_en[:,:,e] = inv - energies[e]*np.eye(dim)
+        self_en[:,:,e] = inv + Hk - energies[e]*np.eye(dim)
+        # self_en[:,:,e] = inv + Hk.transpose() - energies[e]*np.eye(dim)
+        inv_G[:,:,e] = inv
+    return self_en, inv_G
+
+
+def save(filename, energies, se):
+
+    dim, temp, NE = se.shape
+    se_lin = np.zeros([NE, 2*dim*dim+1])
+    se_lin[:,0] = energies
+
+    for i in range(dim*dim):
+        se_lin[:,2*i + 1] = np.real(se[i%dim, i//dim,:])
+        se_lin[:,2*i + 2] = np.imag(se[i%dim, i//dim,:])
+    np.savetxt(filename, se_lin)
+
+
+class band_structure():
+    
+    bonds = []
+    Nk = 0
+    N_orbs = 0
+    bonds_are_set = False
+    primitive_are_set = False
+    
+    dim = 0
+    
+        
+    def set_primitive2(self, a1, a2):
+        """2D: Set the primitive vectors of the lattice a1 and a2. This method automatically computes 
+        the reciprocal lattice primitive vectors b1 and b2 such that np.dot(bn, am) = 2 pi delta_nm.
+        """
+        self.dimd = 2
+        
+        self.a1 = a1
+        self.a2 = a2
+        
+        self.A = np.zeros([2,2])
+        self.A[:,0] = self.a1
+        self.A[:,1] = self.a2
+        
+
+        self.B = np.linalg.inv(self.A)*np.pi*2
+        self.b1 = self.B[0]
+        self.b2 = self.B[1]
+
+        self.primitive_are_set = True
+
+    def set_primitive3(self, a1, a2, a3):
+        """3D: Set the primitive vectors of the lattice a1, a2 and a3. This method automatically computes 
+        the reciprocal lattice primitive vectors b1, b2 and b3 such that np.dot(bn, am) = 2 pi delta_nm.
+        """
+        self.dimd = 3
+        
+        self.a1 = a1
+        self.a2 = a2
+        self.a3 = a3
+        
+        self.A = np.zeros([3,3])
+        self.A[:,0] = self.a1
+        self.A[:,1] = self.a2
+        self.A[:,2] = self.a3
+        
+
+        self.B = np.linalg.inv(self.A)*np.pi*2
+        self.b1 = self.B[0]
+        self.b2 = self.B[1]
+        self.b3 = self.B[2]
+
+        self.primitive_are_set = True
+        
+    def set_orbs(self, orb_list, orb_pos):
+        self.orbitals = orb_list[:]
+        self.orb_pos = orb_pos[:]
+        self.N_orbs = len(orb_list)
+    
+    def set_bonds(self, bond_list):
+        """Set the list of all hopping integrals that characterizes the 
+        tight-binding model. This method expects a list of items such as the 
+        following item:
+        
+        [ [1,0] , 'A' , 'B' , 0.1]
+        
+        which should be interpreted as such: if initially I'm in the 'A' orbital of the unit cell [0,0],
+        then after being acted upon with the Hamiltonian, I'll be in the 'B' orbital of the unit
+        cell [1,0], and my original value will have been multiplied by 0.1. The set of these items 
+        should not contain the Hermitian part, because it is computed automatically."""
+        
+        
+        self.bonds = bond_list[:]
+        
+        
+
+
+        hermitian_bonds = []
+        if(self.dimd == 2):
+            for bond in self.bonds:
+                origin = bond[1]
+                destin = bond[2]
+                relative = bond[0]
+                hop = bond[3]
+                if origin == destin and relative == [0,0]:
+                    None
+                    
+                else:                
+                    hermitian_bonds.append([ [-relative[0], -relative[1]], destin, origin, np.conj(hop)])
+                
+        elif(self.dimd == 3):
+            for bond in self.bonds:
+                origin = bond[1]
+                destin = bond[2]
+                relative = bond[0]
+                hop = bond[3]
+                if origin == destin and relative == [0,0,0]:
+                    None
+                    
+                else:                
+                    hermitian_bonds.append([ [-relative[0], -relative[1], -relative[2]], destin, origin, np.conj(hop)])
+
+        else:
+            print("Is the dimension 'dim' set?")
+            sys.exit(1)
+
+
+        self.bonds += hermitian_bonds
+        self.bonds_are_set = True
+        
+        
+        
+        
+        
+    def set_kpath(self, k_list, num_k):
+        
+        
+        
+        num_points = len(k_list)
+        
+        self.Nk = num_k*(num_points - 1)
+        
+        self.ks = np.zeros([self.Nk, self.dimd])
+        
+        
+        
+        total_k = 0
+        line = np.zeros([num_k, self.dimd])
+        
+        for i in range(num_points - 1):
+            start = np.array(k_list[i])
+            end   = np.array(k_list[i+1])
+            diff  = end - start
+            
+            for j in range(num_k):
+                line[j] = start + diff*j/(num_k - 1)
+                
+            self.ks[total_k:total_k + num_k] = line
+            
+            total_k += num_k
+        
+        
+    def get_Hk(self, k):
+        """Compute the Hamiltonian in Fourier space at wave-vector k from the list of bonds
+        that was previously fed to this class. This method assumes that all the real-space
+        coordinates are in the basis of the primitive vectors a1,a2 and that all the reciprocal-space
+        quantities such as the wave-vector k are in the basis b1,b2. The scalar product in the
+        functions of this method already has the 2pi factor included"""
+        assert(self.bonds_are_set)
+            
+        H = np.matrix(np.zeros([self.N_orbs, self.N_orbs], dtype = 'complex'))
+        
+       
+        for i in range(self.N_orbs):
+            for j in range(self.N_orbs):
+                H[i,j] = 0
+                
+                for bond in self.bonds:
+
+
+                    if bond[1] == self.orbitals[i] and bond[2] == self.orbitals[j]:
+                        r = np.array(bond[0])
+                        hop = bond[3]
+                        orb_phase1 = np.exp(-1j*2*np.pi*np.dot(k,self.orb_pos[i]))
+                        orb_phase2 = np.exp( 1j*2*np.pi*np.dot(k,self.orb_pos[j]))
+                        
+                        H[i,j] += np.exp(1j*2*np.pi*np.dot(r, k))*hop*orb_phase1*orb_phase2
+
+        return H
+            
+        
+    
+    def get_bands(self):
+        
+        bands = np.zeros([self.Nk, self.N_orbs])
+        H = np.zeros([self.N_orbs, self.N_orbs], dtype = 'complex')
+        
+
+        for k in range(self.Nk):
+            H = self.get_Hk(self.ks[k])
+
+            v = np.linalg.eigvalsh(H)
+            v.sort()
+            bands[k] = v
+            
+            
+        return bands
+
+
+    def set_model(self, model):
+        if(model.dimd == 2):
+            self.set_primitive2(model.a1, model.a2)
+        elif(model.dimd == 3):
+            self.set_primitive3(model.a1, model.a2, model.a3)
+        self.set_orbs(model.orbitals.copy(), model.orb_pos.copy())
+
+        self.set_bonds(model.bonds)
+        self.specific_k = model.k
+        
+
+    def process(self, in_file, out_file):
+        hh = self.get_Hk(self.specific_k)
+        energies, green_matrix = get_spectral(in_file)
+        se,grg = self_energy(hh, energies, green_matrix)
+        save(out_file, energies, se)
+        
+        return energies, se
+
+# Auxiliary container class
+class model():
+    None
