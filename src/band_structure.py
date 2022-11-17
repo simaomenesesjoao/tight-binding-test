@@ -1,9 +1,20 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# To convert this notebook into a python script, run
+# # Tight-binding toolset
+# ## Define lattices and interface with both KITE and NonLinearInterpolation
+# 
+# This notebook contains the whole implementation of the library. To convert this notebook to the library, run
 # 
 # jupyter-nbconvert --to script interface.ipynb
+
+# In[8]:
+
+
+# to convert to script run
+if __name__== "__main__":
+    get_ipython().system('jupyter-nbconvert --to script band_structure.ipynb')
+
 
 # In[1]:
 
@@ -155,7 +166,7 @@ class model():
     None
 
 
-# # Functionality to calculate the band structure and the Hamiltonian in k-space
+# ## Functionality to calculate the band structure and the Hamiltonian in k-space
 # 
 # These functions can still be simplified a bit using the decomposition of the Hamiltonian into bonds
 # 
@@ -260,8 +271,9 @@ band_structure.get_Hk = get_Hk
 band_structure.get_bands = get_bands
 
 
-# # Print to Cpp file
-# 
+# ## Print to Cpp file
+
+# This was used for the interface with JVL's and Roboredo's code on nonlinear optics
 
 # In[4]:
 
@@ -425,7 +437,7 @@ band_structure.generate_lattice_file    = generate_lattice_file
 band_structure.generate_properties_file = generate_properties_file
 
 
-# # Self-energy functionality
+# ## Self-energy functionality
 
 # In[5]:
 
@@ -507,6 +519,7 @@ def self_energy(Hk,energies, green_matrix):
     self_en = green_matrix.copy()*0
     inv_G   = green_matrix.copy()*0
     dim = self_en.shape[0]
+    #print("self-energy: dim", dim)
     NE = len(energies)
     for e in range(NE):
         g = green_matrix[:,:,e]
@@ -535,19 +548,219 @@ def save(filename, energies, se):
 
     
 def process(self, in_file, out_file):
-        hh = self.get_Hk(self.specific_k)
-        energies, green_matrix = get_spectral(in_file)
-        se,grg = self_energy(hh, energies, green_matrix)
-        save(out_file, energies, se)
-        
-        return energies, se
+    hh = self.get_Hk(self.specific_k)
+    energies, green_matrix = get_spectral(in_file)
+    se,grg = self_energy(hh, energies, green_matrix)
+    save(out_file, energies, se)
+
+    return energies, se
     
 band_structure.process = process
 
 
+# # Premade tight-binding models
+
+# ## Graphene
+
+# ### Regular graphene hoppings and global shift
+
+# ![image.png](attachment:1a7f3382-c48e-4069-bb63-875619b47b53.png)
+
+# In[ ]:
+
+
+# Graphene hoppings
+def graphene(t):
+    hops = []
+    for A, B in zip(["Au", "Ad"], ["Bu","Bd"]):
+        hops.append([B, A, 0, 0, t])
+        hops.append([B, A, 1, 0, t])
+        hops.append([B, A, 1,-1, t])
+    return hops
+
+# Global shift
+def global_shift(Utg):
+    hops = []
+    for orb in orbs:
+        hops.append([orb, orb, 0,0, Utg])
+    return hops
+    
+
+
+# ### Sublattice distinction
+
+# ![image.png](attachment:edc2d5cc-b007-43ea-b3cf-45a21348bee3.png)
+
+# In[ ]:
+
+
+# sublattice distinction
+def sublattice_dist(Δ):
+    hops = []
+    orbsp = ["Au", "Ad", "Bu", "Bd"]
+    for orb, sign in zip(orbsp, [ 1, 1,-1,-1]):
+        hops.append([orb, orb, 0,0, Δ*sign])
+    return hops
+
+
+# ### Kane-Mele
+
+# ![image.png](attachment:7b4e9eb6-6446-4d1a-b587-d5635dbfc430.png)
+# ![image.png](attachment:844ddf51-2fdb-4e8d-bd22-d378261cfb4b.png)
+
+# In[ ]:
+
+
+# Kane-Mele
+def KaneMele(λIA, λIB):
+    KMA = 1j*λIA/3/np.sqrt(3)
+    KMB = 1j*λIB/3/np.sqrt(3)
+    
+    hops = []
+    for orb, sign in zip(["Au", "Ad"], [1,-1]):
+        hops.append([orb, orb, 1, 0,-KMA*sign])
+        hops.append([orb, orb, 0, 1, KMA*sign])
+        hops.append([orb, orb,-1, 1,-KMA*sign])
+
+    for orb, sign in zip(["Bu", "Bd"], [1,-1]):
+        hops.append([orb, orb, 1, 0, KMB*sign])
+        hops.append([orb, orb, 0, 1,-KMB*sign])
+        hops.append([orb, orb,-1, 1, KMB*sign])
+        
+    return hops
+
+
+# ### Rashba with twist angle
+
+# ![image.png](attachment:d8f3bb9b-b7ea-4d11-8ac1-17a290b603ac.png)
+# ![image.png](attachment:90c0b188-6e74-4c11-b26c-e18d34a19d29.png)
+
+# In[ ]:
+
+
+# Rashba hoppings with phase
+def rashba_phase(λR, φ):
+    R  = λR*2j/3
+    sq = np.sqrt(3)/2
+    z  = np.exp( 1j*φ)
+    zc = z.conjugate()
+    
+    hops = []
+    hops.append(["Au", "Bd", 0, 0,             1j*R*z ])
+    hops.append(["Ad", "Bu", 0, 0,            -1j*R*zc])
+    hops.append(["Au", "Bd",-1, 1, ( 0.5 + 1j*sq)*R*z ])
+    hops.append(["Ad", "Bu",-1, 1, ( 0.5 - 1j*sq)*R*zc])
+    hops.append(["Au", "Bd",-1, 0, (-0.5 + 1j*sq)*R*z ])
+    hops.append(["Ad", "Bu",-1, 0, (-0.5 - 1j*sq)*R*zc])
+    
+    return hops
+
+
+# ### Magnetization and exchange
+
+# ![image.png](attachment:86a93508-e94f-451d-b6ed-3a51914df7bd.png)
+
+# In[1]:
+
+
+# Magnetization along z
+def magnetization(mag):
+    hops = []
+    orbsp = ["Au", "Ad", "Bu", "Bd"]
+    for orb, sign in zip(orbsp, [ 1,-1, 1,-1]):
+        hops.append([orb, orb, 0,0, mag*sign])
+    return hops
+
+
+# Exchange with m along z
+def exchange(mag):
+    hops = []
+    orbsp = ["Au", "Ad", "Bu", "Bd"]
+    for orb, sign in zip(orbsp, [ 1,-1,-1,1]):
+        hops.append([orb, orb, 0,0, mag*(-sign)])
+    return hops
+
+
+# ## Branislav: Kubo vs Keldysh
+
+# Hamiltonian used for the Kubo vs Keldysh paper
+# ![image.png](attachment:e5e49e31-1862-446f-8e4c-ee5a5b01a584.png)
+
+# In[ ]:
+
+
+def KuboVsKeldysh():
+    
+    # All the energy scales are in units of the graphene hopping
+    t   = -1.0  # [t] Graphene hoppings 
+    λex =  0.4  # [t] Magnetization
+    λR  =  0.3  # [t] Rashba coupling
+    φ   =  0.0  # [t] Rashba phase
+    
+    hops = []
+    hops += graphene(t)
+    hops += rashba_phase(λR, φ)
+    hops += magnetization(λex)
+    
+    return hops
+
+
+# In[ ]:
+
+
+
+
+
+# ## Jaroslav
+
+# The Hamiltonian is defined in its linearized version in Jaroslav's paper:
+# 
+# ![image.png](attachment:d60015e2-d405-4b19-b445-c651e3bdc937.png)
+# 
+# But a closely-related real-space version is available in another paper (https://journals.aps.org/prresearch/abstract/10.1103/PhysRevResearch.2.043057)
+# 
+# ![image.png](attachment:00ada584-d54e-43c7-89b5-cb2717c41b30.png)
+# ![image.png](attachment:a2888c93-6438-4b70-82e1-2972d7751448.png)
+# 
+# The only difference to keep in mind is the additional phase in the Rashba coupling. <br>
+# A more detailed explanation of the terms can be found in a paper by Denis Kochan: https://journals.aps.org/prb/abstract/10.1103/PhysRevB.95.165415
+
+# In[6]:
+
+
+def Jaroslav(t,Δ,λIA,λIB,λR,φ):
+    
+    # t   = -2.7  # [eV] Graphene hoppings
+    # Δ   =  0.0  # [eV] sublattice distinction
+    # λIA =  0.01 # [eV] Kane-Mele A sublattice
+    # λIB =  0.02 # [eV] Kane-Mele B sublattice
+    # λR  =  0.3  # [eV] Rashba coupling
+    # φ   =  1.2  # [eV] Rashba phase
+    
+    hops = []
+    hops += graphene(t)
+    hops += sublattice_dist(Δ)
+    hops += KaneMele(λIA, λIB)
+    hops += rashba_phase(λR, φ)
+    
+    return hops
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
+
 # # Example
 
-# In[10]:
+# In[6]:
 
 
 if __name__ == "__main__":
@@ -594,8 +807,7 @@ if __name__ == "__main__":
 
 # # Plot the band structure along a path
 
-# In[7]:
-
+# In[ ]:
 
 
 if __name__ == "__main__":   
@@ -614,4 +826,72 @@ if __name__ == "__main__":
 
 
     plt.show()
+
+
+# # Example 2
+
+# In[ ]:
+
+
+if __name__ == "__main__":
+    print("Running example")
+    
+    GR = bs.band_structure()
+    GR.DEBUG = 0 # Debug flag. Set to 1 to get debug information
+
+    # Lattice properties and primitive vectors (already defined reciprocal lattice vectors)
+    acc = 1.0
+    a = np.sqrt(3)
+    a1 = np.array([1.0,  0.0           ])*a
+    a2 = np.array([0.5,  np.sqrt(3)/2.0])*a
+    GR.set_primitive2(a1,a2)
+    
+    
+    # Information about the orbitals
+    orbitals = ["A", "B"]
+    orb_pos = [np.array([0.0    ,  0.0    ]), 
+               np.array([1.0/3.0, -2.0/3.0])] # in units of the primitive lattice vectors
+    GR.set_orbs(orbitals, orb_pos)
+
+    
+    # Information about the hoppings for the tight-binding model
+    bonds = []
+    t = 2.33*0+1
+    gap = 7.8*0
+    bonds.append([[ 0, 0], 'A', 'B', -t])
+    bonds.append([[-1, 1], 'A', 'B', -t])
+    bonds.append([[ 0, 1], 'A', 'B', -t])
+    bonds.append([[ 0, 0], 'A', 'A',  gap/2.0])
+    bonds.append([[ 0, 0], 'B', 'B', -gap/2.0])
+    GR.set_bonds(bonds)
+    
+    
+    # Write the data into the NonLinearOpticsInterpolation 'Models' folders
+    # so that it can be compiled into a program
+    GR.printable_basedir = "/home/simao/projects_sync/codes/NonLinearOpticsInterpolation/Src/Models/"
+    GR.generate_potential_file()
+    GR.generate_lattice_file()   
+    GR.generate_properties_file()
+
+    G = [0,0]
+    M = [0.5, 0]
+    K = [1.0/3.0, -1.0/3.0]
+
+    GR.set_kpath([G,K,M,G],100)
+
+    fig, axs = plt.subplots()
+    bands = GR.get_bands()
+
+    for i in range(GR.N_orbs):
+        b = bands[:,i]
+        axs.plot(b,c='b')
+
+
+    plt.show()
+
+
+# In[ ]:
+
+
+
 
