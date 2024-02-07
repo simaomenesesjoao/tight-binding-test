@@ -8,7 +8,7 @@
 # 
 # jupyter-nbconvert --to script interface.ipynb
 
-# In[8]:
+# In[1]:
 
 
 # to convert to script run
@@ -16,17 +16,18 @@ if __name__== "__main__":
     get_ipython().system('jupyter-nbconvert --to script band_structure.ipynb')
 
 
-# In[1]:
+# In[ ]:
 
 
 import numpy as np
 import sys
 import os
+import matplotlib.pyplot as plt
 
 
 # # Band structure class
 
-# In[2]:
+# In[ ]:
 
 
 class band_structure():
@@ -182,7 +183,7 @@ class model():
 # 
 # $$ \left\langle \boldsymbol{p},\alpha_{final}\right|\hat{H}_{n}\left(\mathbf{p}\right)\left|\boldsymbol{p},\alpha_{init}\right\rangle = e^{i\boldsymbol{p}\cdot\left(\boldsymbol{\delta}_{init}^{n}-\boldsymbol{\delta}_{final}^{n}-\boldsymbol{d}_{n}\right)}\left\langle \boldsymbol{d}_{n},\alpha_{final}\right|\hat{H}_{n}\left|\boldsymbol{0},\alpha_{init}\right\rangle  $$
 
-# In[3]:
+# In[ ]:
 
 
 def get_Hk(self, k):
@@ -274,7 +275,7 @@ band_structure.get_bands = get_bands
 
 # This was used for the interface with JVL's and Roboredo's code on nonlinear optics
 
-# In[4]:
+# In[ ]:
 
 
 def printable_Hk(self):
@@ -438,7 +439,7 @@ band_structure.generate_properties_file = generate_properties_file
 
 # ## Self-energy functionality
 
-# In[5]:
+# In[ ]:
 
 
 def get_spectral_linearized(filename):
@@ -569,6 +570,15 @@ band_structure.process = process
 
 
 # Graphene hoppings
+def graphene_simple(t):
+    hops = []
+    hops.append(["B", "A", 0, 0, t])
+    hops.append(["B", "A", 1, 0, t])
+    hops.append(["B", "A", 1,-1, t])
+    return hops
+
+
+# Graphene hoppings
 def graphene(t):
     hops = []
     for A, B in zip(["Au", "Ad"], ["Bu","Bd"]):
@@ -610,8 +620,9 @@ def sublattice_dist(Δ):
 # In[ ]:
 
 
-# Kane-Mele
+# Kane-Mele term. Assumes the first primitive vector is diagonal and the second is vertical
 def KaneMele(λIA, λIB):
+    
     KMA = 1j*λIA/3/np.sqrt(3)
     KMB = 1j*λIB/3/np.sqrt(3)
     
@@ -645,12 +656,13 @@ def rashba_phase(λR, φ):
     zc = z.conjugate()
     
     hops = []
-    hops.append(["Au", "Bd", 0, 0,             1j*R*z ])
-    hops.append(["Ad", "Bu", 0, 0,            -1j*R*zc])
-    hops.append(["Au", "Bd",-1, 1, ( 0.5 + 1j*sq)*R*z ])
-    hops.append(["Ad", "Bu",-1, 1, ( 0.5 - 1j*sq)*R*zc])
-    hops.append(["Au", "Bd",-1, 0, (-0.5 + 1j*sq)*R*z ])
-    hops.append(["Ad", "Bu",-1, 0, (-0.5 - 1j*sq)*R*zc])
+    hops.append(["Au", "Bd", 0, 0,          -1j*R*z ])
+    hops.append(["Au", "Bd",-1, 0, ( sq + 0.5j)*R*z ])
+    hops.append(["Au", "Bd",-1, 1, (-sq + 0.5j)*R*z ])
+    
+    hops.append(["Ad", "Bu", 0, 0,           1j*R*zc])
+    hops.append(["Ad", "Bu",-1, 0, ( sq - 0.5j)*R*zc])
+    hops.append(["Ad", "Bu",-1, 1, (-sq - 0.5j)*R*zc])
     
     return hops
 
@@ -659,7 +671,7 @@ def rashba_phase(λR, φ):
 
 # ![image.png](attachment:86a93508-e94f-451d-b6ed-3a51914df7bd.png)
 
-# In[1]:
+# In[ ]:
 
 
 # Magnetization along z
@@ -724,7 +736,7 @@ def KuboVsKeldysh():
 # The only difference to keep in mind is the additional phase in the Rashba coupling. <br>
 # A more detailed explanation of the terms can be found in a paper by Denis Kochan: https://journals.aps.org/prb/abstract/10.1103/PhysRevB.95.165415
 
-# In[6]:
+# In[ ]:
 
 
 def Jaroslav(t,Δ,λIA,λIB,λR,φ):
@@ -734,7 +746,7 @@ def Jaroslav(t,Δ,λIA,λIB,λR,φ):
     # λIA =  0.01 # [eV] Kane-Mele A sublattice
     # λIB =  0.02 # [eV] Kane-Mele B sublattice
     # λR  =  0.3  # [eV] Rashba coupling
-    # φ   =  1.2  # [eV] Rashba phase
+    # φ   =  1.2  # [radian] Rashba phase
     
     hops = []
     hops += graphene(t)
@@ -759,7 +771,7 @@ def Jaroslav(t,Δ,λIA,λIB,λR,φ):
 
 # # Example
 
-# In[6]:
+# In[ ]:
 
 
 if __name__ == "__main__":
@@ -887,6 +899,228 @@ if __name__ == "__main__":
 
 
     plt.show()
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
+
+# # Unit cell duplicator
+
+# In[ ]:
+
+
+def complete_cc(hop_list):
+    # Create all the complex conjugate hoppings if they do not exist already
+    all_hops = hop_list.copy()
+    for hop in hop_list:
+        o1,o2,n,m,t = hop
+        cc = [o2,o1,-n,-m,np.conj(t)]
+
+        if cc not in all_hops:
+            all_hops.append(cc)
+
+    return all_hops
+
+def remove_cc(hop_list):
+    all_hops = hop_list.copy()
+    
+    pops = True
+    while pops:
+        pops = False
+        for hop in all_hops:
+            o1,o2,n,m,t = hop
+            if o1==o2 and n==0 and m==0: continue
+            cc = [o2,o1,-n,-m,np.conj(t)]
+
+            if cc in all_hops:
+                all_hops.remove(cc)
+                pops = True
+                break
+
+    return all_hops
+
+class hop_utils:
+    hops = []
+    orbs = []
+    prims = []
+    pos = [] # orbital positions
+    rules = False
+    
+    
+    def set_prims(self, prim_vecs):
+        self.prims = prim_vecs.copy()
+    
+    def set_orbs(self, orb_names, orb_pos):
+        self.pos = orb_pos.copy()
+        self.orbs = orb_names.copy()
+        self.No = len(orb_names)
+        self.orbs_dic = {self.orbs[i]:i for i in range(self.No)}
+        
+        
+        
+
+    
+    def set_hops(self, hop_list):
+        self.hops = complete_cc(hop_list)
+        
+
+
+# In[ ]:
+
+
+def set_duplication_rules(self, join, A1, A2):
+    self.join = join
+    self.new_prims = [A1,A2]
+    self.rules = True
+    
+
+    
+def duplicate_orbs(self):
+    if not self.rules:
+        print("Duplication rules not set")
+        return 0
+    
+    a1, a2 = self.prims
+    join = self.join
+    A1, A2 = self.new_prims
+    # join: unit cell to which to join
+    # A1, A2: new primitive vectors
+
+    
+
+
+    # Create the new orbitals
+    new_orbs = []
+    new_pos = []
+    for orb, r in zip(self.orbs, self.pos):
+        o1 = orb + "1"
+        new_orbs.append(o1)    
+        new_pos.append(r)
+
+    # Create the new positions
+    for orb, r in zip(self.orbs, self.pos):
+        o2 = orb + "2"
+        new_orbs.append(o2)
+        new_pos.append(r + a1*join[0] + a2*join[1])
+
+    # print(new_orbs)
+    # print(new_pos)
+    new_No = len(new_orbs)
+    new_orbs_dic = {new_orbs[i]:i for i in range(new_No)}
+
+    self.new_orbs = new_orbs.copy()
+    self.new_pos = new_pos.copy()
+    self.new_orbs_dic = new_orbs_dic.copy()
+    self.new_No = new_No
+
+
+# In[ ]:
+
+
+def duplicate_hops(self):
+    if not self.rules:
+        print("Duplication rules not set")
+        return 0
+    
+    
+    A1, A2 = self.new_prims
+    hops = self.hops
+    # join: unit cell to which to join
+    # A1, A2: new primitive vectors
+    
+    α1 = A1[0]; α2 = A1[1]; α3 = A2[0]; α4 = A2[1]
+    det = α1*α4 - α2*α3
+    # print("det:", det)
+
+    # Generate the new list of hoppings
+    new_hops = []
+    for hop in hops:
+        o1,o2,n,m,t = hop
+        
+        # Diagonal elements have to be treated separately
+        if o1 == o2 and n==0 and m==0: continue
+
+        for d in [0,1]:
+            new_n = n+d
+            # new_hop = [new_o1, new_o2, new_n, m, t]
+
+            new_o1 = o1 + str(d+1)
+
+            # print("original hop: ", hop)
+            # print("creating new hop: ", [new_o1, o2, new_n, m])
+
+            # check divisibility
+            α = 0
+            β = 0
+            found = False
+            for α_test in [0,1]:
+                for β_test in [0]:
+                    if found: continue
+
+                    num1 =  α4*(new_n-α_test) - α3*(m-β_test)
+                    num2 = -α2*(new_n-α_test) + α1*(m-β_test)
+
+                    nA1 = num1//det
+                    nA2 = num2//det
+                    div1 = num1%det == 0
+                    div2 = num2%det == 0
+                    # print("testing α and β:", α_test,β_test)
+                    if div1 and div2:
+                        found = True
+                        α = α_test
+                        β = β_test
+
+            if not found: print("ERROR")
+            # print("The values of α and β that work are: ", α,β)
+
+            new_o2 = o2 + str(α+1)
+            new_hop = [new_o1, new_o2, nA1, nA2, t]
+            # print("---- hop in new primitive vectors: ", new_hop)
+
+            new_hops.append(new_hop)
+            # print("")
+            
+    # Diagonal elements:
+    for hop in hops:
+        o1,o2,n,m,t = hop
+        if o1 == o2 and n==0 and m==0: 
+            new_o1 = o1 + "1"
+            new_o2 = o1 + "2"
+            new_hops.append([new_o1, new_o1, 0, 0, t])
+            new_hops.append([new_o2, new_o2, 0, 0, t])
+        
+    self.new_hops = new_hops.copy()
+    
+hop_utils.duplicate_hops = duplicate_hops
+hop_utils.set_duplication_rules = set_duplication_rules
+hop_utils.duplicate_orbs = duplicate_orbs
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
 
 
 # In[ ]:
